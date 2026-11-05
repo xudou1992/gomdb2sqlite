@@ -39,10 +39,10 @@ SCHEMA = {
         "WALKWAIT" INTEGER,"ATTACK_SPD" INTEGER,"Exp" INTEGER,"ExploreItem" INTEGER,
         "InLevel" INTEGER,"IPExp" INTEGER)''',
     "Magic": '''CREATE TABLE IF NOT EXISTS "Magic" (
-        "MagID" INTEGER,"MagName" TEXT(40),"EffectType" INTEGER,"Effect" INTEGER,
+        "MagID" INTEGER,"MagName" TEXT(12),"EffectType" INTEGER,"Effect" INTEGER,
         "Spell" INTEGER,"Power" INTEGER,"MaxPower" INTEGER,"DefSpell" INTEGER,
         "DefPower" INTEGER,"DefMaxPower" INTEGER,"Job" INTEGER,
-        %s "MaxTrainLv" INTEGER,"Delay" INTEGER,"Descr" TEXT(60))''' %
+        %s, "MaxTrainLv" INTEGER,"Delay" INTEGER,"Descr" TEXT(12))''' %
         ",".join('"NeedL%d" INTEGER,"L%dTrain" INTEGER' % (i, i) for i in range(1, 16)),
     "StdItems": '''CREATE TABLE IF NOT EXISTS "StdItems" (
         "Idx" INTEGER,"Name" TEXT(40),"Stdmode" INTEGER,"Shape" INTEGER,
@@ -275,8 +275,14 @@ def main(argv=None):
     files = {"Monster": "Monster.DB", "Magic": "Magic.DB", "StdItems": "StdItems.DB"}
     lines = []
     ok = 0
-    with sqlite3.connect(args.out) as con:
-        pass
+    # 建表顺序必须固定为 StdItems -> Magic -> Monster。
+    # RED 的 DBServer 按 sqlite_master 的顺序遍历表，并且假定第 1 张是物品、第 2 张是技能、第 3 张是怪物；
+    # 顺序不对不会报字段错，而是直接弹「物品数据库发生错误！」。
+    con = sqlite3.connect(args.out)
+    for t in ("StdItems", "Magic", "Monster"):
+        con.execute(SCHEMA[t])
+    con.commit()
+    con.close()
     for t in [x.strip() for x in args.table.split(",") if x.strip()]:
         if t not in files:
             lines.append("跳过未知表 %s" % t); continue
