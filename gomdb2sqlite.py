@@ -32,7 +32,7 @@ TYPE_SIZE = {0x01: None, 0x02: 4, 0x03: 2, 0x04: 4, 0x05: 8,
 
 SCHEMA = {
     "Monster": '''CREATE TABLE IF NOT EXISTS "Monster" (
-        "Name" TEXT(40),"Race" INTEGER,"RaceImg" INTEGER,"Appr" INTEGER,"Lvl" INTEGER,
+        "Name" TEXT(20),"Race" INTEGER,"RaceImg" INTEGER,"Appr" INTEGER,"Lvl" INTEGER,
         "Undead" INTEGER,"CoolEye" INTEGER,"HP" INTEGER,"MP" INTEGER,"AC" INTEGER,
         "MAC" INTEGER,"DC" INTEGER,"DCMAX" INTEGER,"MC" INTEGER,"SC" INTEGER,
         "SPEED" INTEGER,"HIT" INTEGER,"WALK_SPD" INTEGER,"WALKSTEP" INTEGER,
@@ -45,7 +45,7 @@ SCHEMA = {
         %s, "MaxTrainLv" INTEGER,"Delay" INTEGER,"Descr" TEXT(12))''' %
         ",".join('"NeedL%d" INTEGER,"L%dTrain" INTEGER' % (i, i) for i in range(1, 16)),
     "StdItems": '''CREATE TABLE IF NOT EXISTS "StdItems" (
-        "Idx" INTEGER,"Name" TEXT(40),"Stdmode" INTEGER,"Shape" INTEGER,
+        "Idx" INTEGER,"Name" TEXT(20),"Stdmode" INTEGER,"Shape" INTEGER,
         "Weight" INTEGER,"Anicount" INTEGER,"Source" INTEGER,"Reserved" INTEGER,
         "Looks" INTEGER,"DuraMax" INTEGER,"Ac" INTEGER,"Ac2" INTEGER,"Mac" INTEGER,
         "Mac2" INTEGER,"Dc" INTEGER,"Dc2" INTEGER,"Mc" INTEGER,"Mc2" INTEGER,
@@ -58,6 +58,8 @@ SCHEMA = {
 }
 
 NAME_COL = {"Monster": "Name", "Magic": "MagName", "StdItems": "Name"}
+# 引擎内部名字缓冲上限(GBK 字节), 超了会报「加载物品(Idx:x)数据失败 Code:-100」
+NAME_LIMIT = {"Monster": 20, "Magic": 12, "StdItems": 20}
 KEY_COL = {"Monster": None, "Magic": "MagID", "StdItems": "Idx"}
 
 
@@ -162,18 +164,37 @@ def decode(d: bytes, i: int, rec: int, descs, names):
     return out
 
 
+_PAIRS = {"『": "』", "【": "】", "《": "》", "(": ")", "（": "）", "[": "]", "“": "”"}
+
+
 def cut_bytes(s: str, limit: int) -> str:
-    """按 GBK 字节截断,不切断双字节字符"""
+    """按 GBK 字节截断, 不切断双字节字符; 末尾若留下半个英文词或悬空括号, 一并去掉"""
     b = s.encode("gbk", "ignore")
     if len(b) <= limit:
         return s
     out = b[:limit]
     while out:
         try:
-            return out.decode("gbk")
+            t = out.decode("gbk")
+            break
         except Exception:
             out = out[:-1]
-    return ""
+    else:
+        return ""
+    # 不把英文单词截成半个
+    if t and t[-1].isalnum() and limit < len(b) and b[limit] < 128 and chr(b[limit]).isalnum():
+        while t and t[-1].isalnum():
+            t = t[:-1]
+    # 去掉悬空的开括号/连接符
+    while t:
+        ch = t[-1]
+        if ch in _PAIRS and _PAIRS[ch] not in t:
+            t = t[:-1]
+        elif ch in "·-—_ ":
+            t = t[:-1]
+        else:
+            break
+    return t or s[:limit // 2]
 
 
 def clean(con, table):
@@ -191,11 +212,12 @@ def clean(con, table):
             drop.append(rid); continue
         if set(s) <= set("-_. "):            # -------- 分隔行
             drop.append(rid); continue
-        nn = s                              # 名字原样保留, 表结构已放宽到 TEXT(40)
-        if nn in seen:                      # 重名追加序号, 不改名本身
+        nn = cut_bytes(s, NAME_LIMIT[table])   # 名字必须压到引擎缓冲以内, 否则加载物品时溢出
+        if nn in seen:                          # 重名追加序号
+            base = cut_bytes(s, NAME_LIMIT[table] - 3)
             for k in range(2, 100):
-                cand = "%s(%d)" % (s, k)
-                if cand not in seen:
+                cand = "%s%d" % (base, k)
+                if len(cand.encode("gbk", "ignore")) <= NAME_LIMIT[table] and cand not in seen:
                     nn = cand; break
         if nn in seen:
             drop.append(rid); continue
