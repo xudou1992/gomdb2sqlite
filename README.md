@@ -23,6 +23,19 @@ Access violation at address 004081FE in module 'DBServer.exe'. Read of address 0
 
 ## 用法
 
+### 图形界面（推荐）
+
+双击 `run_gui.bat`，或：
+
+```bash
+python gomdb2sqlite_gui.py
+```
+
+选源目录 → 自动检测三个 `.DB` 是否存在 → 勾选要转的表 → 开始转换，日志实时滚动。
+输出默认落在源目录下的 `REDM2.DB`，已存在的旧库会自动备份成 `.bak`。
+
+### 命令行
+
 ```bash
 # 源目录里要有 Magic.DB / Monster.DB / StdItems.DB
 python gomdb2sqlite.py --src D:\gomdb --out D:\MirServer\Mud2\DB\REDM2.DB
@@ -34,20 +47,20 @@ python gomdb2sqlite.py --src D:\gomdb --out out.db --table StdItems
 python gomdb2sqlite.py --src D:\gomdb --out out.db --report report.txt
 ```
 
-Windows 下双击 `run.bat`，把含三个 `.DB` 的目录拖进窗口回车即可，成品生成在该目录的 `REDM2.DB`。
+Windows 下也可以双击 `run.bat`，把含三个 `.DB` 的目录拖进窗口回车。
 
 输出示例：
 
 ```
 Monster   字段 22 记录  98 每块 20 扫描 360 解析 347 入库 347 (剔 0 改名 13)
 Magic     字段 44 记录 208 每块  9 扫描 252 解析 248 入库 248 (剔 0 改名 1)
-StdItems  字段 48 记录 162 每块 12 扫描 732 解析 720 入库 693 (剔 27 改名 286)
+StdItems  字段 48 记录 162 每块 12 扫描 732 解析 720 入库 693 (剔 27 改名 9)
 ```
 
 - `解析` = 从二进制里成功读出的记录数
 - `入库` = 清洗后最终写入的行数
 - `剔` = 被剔除的垃圾行（广告行、`------` 分隔行、重名）
-- `改名` = 名字超过 20 字节被截断（必要时加两位序号）
+- `改名` = 重名项追加了 `(2)` `(3)` 序号，**名字内容本身不改**
 
 ---
 
@@ -95,13 +108,37 @@ StdItems  字段 48 记录 162 每块 12 扫描 732 解析 720 入库 693 (剔 2
 
 另外两个坑：
 
-- **名字不能超过 20 字节（GBK）**
-  `StdItems.Name` 是 `TEXT(20)`，超长会让引擎判库损坏。原表里有大量 30 字节的装备名，
-  脚本按 GBK 字符边界截断到 20 字节，截断后重名的追加两位序号。
-  **截断会改物品名**，进游戏前留意一下有没有需要手改的。
+- **名字长度**
+  RED 建表时 `StdItems.Name` 是 `TEXT(20)`。原表里有大量 30 字节的装备名（`[魔灵]逐风之剑『Max』` 这类），
+  超长会让引擎判库损坏。**本工具建表时直接把名字列放宽到 `TEXT(40)`**，名字原样搬运，不做截断 ——
+  实测 `TEXT(40)` + 30 字节名字，`DBServer` / `M2Server` 都能正常加载。
+  只有重名项会追加 `(2)` `(3)` 后缀区分，名字内容不变。
+  > 如果换上来的引擎版本硬编码只认 20 字节，把 `SCHEMA` 里的 `TEXT(40)` 改回 `TEXT(20)` 即可，
+  > 但那时超长名字只能截断，改名前想清楚。
 
 - **垃圾行**
   广告（`www.xxx.com`、QQ 群号）、`--------------` 分隔行，一并剔除。
+
+---
+
+## 为什么不直接用 BDE 转换工具
+
+`DBC2000数据库转换Sqlite库工具.exe` 这类 BDE 工具在这套表上会报：
+
+```
+Invalid pointer operation.
+```
+
+原因有三条，都绕不过去：
+
+1. **它依赖 BDE 运行时**（Borland Database Engine）。这类工具通过 `TTable` / BDE 别名读 `.DB`，
+   机器上没装 BDE（或没配别名）就会拿到空指针 —— `Invalid pointer operation` 正是 Delphi 扔空指针的典型报错。
+2. **它认的是标准 Paradox 表**。这套 `.DB` 头部的版本字节是 `d0/62/a2`，不是标准的 `03/30`，
+   记录编码也改成了「`0x80` 标志 + 大端」，BDE 按标准格式解会直接错位。
+3. **它对字段映射写死了**。默认输出名 `ApexM2.DB` 说明它是给 Apex 系引擎写的，
+   字段数（Magic 44 / Monster 22 / StdItems 48）和字段宽度跟 Apex 对不上，即使读出来也会写歪。
+
+本工具不碰 BDE，直接按实测格式解析二进制，字段宽度从表头描述区读，所以不受上面三条限制。
 
 ---
 

@@ -32,20 +32,20 @@ TYPE_SIZE = {0x01: None, 0x02: 4, 0x03: 2, 0x04: 4, 0x05: 8,
 
 SCHEMA = {
     "Monster": '''CREATE TABLE IF NOT EXISTS "Monster" (
-        "Name" TEXT(14),"Race" INTEGER,"RaceImg" INTEGER,"Appr" INTEGER,"Lvl" INTEGER,
+        "Name" TEXT(40),"Race" INTEGER,"RaceImg" INTEGER,"Appr" INTEGER,"Lvl" INTEGER,
         "Undead" INTEGER,"CoolEye" INTEGER,"HP" INTEGER,"MP" INTEGER,"AC" INTEGER,
         "MAC" INTEGER,"DC" INTEGER,"DCMAX" INTEGER,"MC" INTEGER,"SC" INTEGER,
         "SPEED" INTEGER,"HIT" INTEGER,"WALK_SPD" INTEGER,"WALKSTEP" INTEGER,
         "WALKWAIT" INTEGER,"ATTACK_SPD" INTEGER,"Exp" INTEGER,"ExploreItem" INTEGER,
         "InLevel" INTEGER,"IPExp" INTEGER)''',
     "Magic": '''CREATE TABLE IF NOT EXISTS "Magic" (
-        "MagID" INTEGER,"MagName" TEXT(12),"EffectType" INTEGER,"Effect" INTEGER,
+        "MagID" INTEGER,"MagName" TEXT(40),"EffectType" INTEGER,"Effect" INTEGER,
         "Spell" INTEGER,"Power" INTEGER,"MaxPower" INTEGER,"DefSpell" INTEGER,
         "DefPower" INTEGER,"DefMaxPower" INTEGER,"Job" INTEGER,
-        %s "MaxTrainLv" INTEGER,"Delay" INTEGER,"Descr" TEXT(12))''' %
+        %s "MaxTrainLv" INTEGER,"Delay" INTEGER,"Descr" TEXT(60))''' %
         ",".join('"NeedL%d" INTEGER,"L%dTrain" INTEGER' % (i, i) for i in range(1, 16)),
     "StdItems": '''CREATE TABLE IF NOT EXISTS "StdItems" (
-        "Idx" INTEGER,"Name" TEXT(20),"Stdmode" INTEGER,"Shape" INTEGER,
+        "Idx" INTEGER,"Name" TEXT(40),"Stdmode" INTEGER,"Shape" INTEGER,
         "Weight" INTEGER,"Anicount" INTEGER,"Source" INTEGER,"Reserved" INTEGER,
         "Looks" INTEGER,"DuraMax" INTEGER,"Ac" INTEGER,"Ac2" INTEGER,"Mac" INTEGER,
         "Mac2" INTEGER,"Dc" INTEGER,"Dc2" INTEGER,"Mc" INTEGER,"Mc2" INTEGER,
@@ -191,12 +191,11 @@ def clean(con, table):
             drop.append(rid); continue
         if set(s) <= set("-_. "):            # -------- 分隔行
             drop.append(rid); continue
-        nn = cut_bytes(s, 20)                # Name 是 TEXT(20),超长引擎判库损坏
-        if nn in seen:
-            base = cut_bytes(s, 17)
-            for k in range(1, 100):
-                cand = base + "%02d" % k
-                if len(cand.encode("gbk", "ignore")) <= 20 and cand not in seen:
+        nn = s                              # 名字原样保留, 表结构已放宽到 TEXT(40)
+        if nn in seen:                      # 重名追加序号, 不改名本身
+            for k in range(2, 100):
+                cand = "%s(%d)" % (s, k)
+                if cand not in seen:
                     nn = cand; break
         if nn in seen:
             drop.append(rid); continue
